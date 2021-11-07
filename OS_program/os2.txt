@@ -1,0 +1,237 @@
+課題1
+1. "threadA"という文字列が何行も表示された後、"threadB"という文字列が同様に何行も表示され、その後"threadA"→"threadB"→"threadA"というように何行かずつ表示することをくり返し続けた。
+
+2. 3つ
+
+3. スコープとは、アクセス可能な場所的範囲のこと。エクステントとは、アクセス可能な時間的範囲のこと。
+
+
+課題2
+1. "Thread(0)"という文字列と"Thread(1)"という文字列が課題1の1と同じ様に何行かずつ繰り返された。
+
+2. 以下の様に書き換えた。
+#include <stdio.h>
+#include <pthread.h>
+void *thread(void *arg)
+{
+for (;;)
+printf("Thread (%f)\n", *(double*)arg);
+return NULL;
+}
+int main()
+{
+pthread_t a, b;
+double arg_a = 3.14, arg_b = 2.71;
+pthread_create(&a, NULL, thread, &arg_a);
+pthread_create(&b, NULL, thread, &arg_b);
+pthread_join(a, NULL);
+pthread_join(b, NULL);
+return 0;
+}
+
+3. 以下の様に書き換えた。
+#include <stdio.h>
+#include <pthread.h>
+void *thread(void *arg)
+{
+for (;;)
+printf("Thread (%s)\n", arg);
+return NULL;
+}
+int main()
+{
+pthread_t a, b;
+char arg_a[10] = "I am a boy", arg_b[11] = "I am a girl";
+pthread_create(&a, NULL, thread, &arg_a);
+pthread_create(&b, NULL, thread, &arg_b);
+pthread_join(a, NULL);
+pthread_join(b, NULL);
+return 0;
+}
+
+4. "Thread(0)"の文字列のみが表示され続けた。
+理由としては、pthread_join()によってthreadが実行されている間、main関数は停止するが、threadは実行をやめないなのでfor文が回らず、1つめのthreadのみが実行され続けるため。
+
+
+課題3
+1. 実行結果が実行するたびに変化した。これは、2つのスレッドが競合状態にあるため、実行が均等にされないからだと考えられる。
+
+
+課題4
+1. 以下の様に書き換えた。
+#include <stdio.h>
+#include <pthread.h>
+static int count = 0;
+/* ロック変数の宣言 */
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void *threadA(void *arg)
+{
+  
+/* ロック変数の確保 */
+pthread_mutex_lock(&mutex);
+  
+ 
+int i;
+int tmp;
+for (i = 0; i < 1000; i++) {
+tmp = count;
+sched_yield();
+tmp = tmp + 1;
+sched_yield();
+count = tmp;
+}
+ /* ロック変数の解放 */
+pthread_mutex_unlock(&mutex);
+return NULL;
+}
+void *threadB(void *arg)
+{
+ 
+/* ロック変数の確保 */
+pthread_mutex_lock(&mutex);
+  
+int i;
+int tmp;
+for (i = 0; i < 1000; i++) {
+tmp = count;
+sched_yield();
+tmp = tmp - 1;
+sched_yield();
+count = tmp;
+}
+ /* ロック変数の解放 */
+pthread_mutex_unlock(&mutex);
+return NULL;
+}
+int main()
+{
+ 
+pthread_t a, b;
+pthread_create(&a, NULL, threadA, NULL);
+pthread_create(&b, NULL, threadB, NULL);
+pthread_join(a, NULL);
+pthread_join(b, NULL);
+printf("count = %d\n", count);
+
+ 
+return 0;
+}
+
+結果
+何度実行してもcountの値は0になった。
+
+
+課題5
+1. int	pthread_cond_wait(pthread_cond_t *cv,pthread_mutex_t *mutex);
+
+2. 
+#include <stdio.h>
+#include <pthread.h>
+#define N 5
+
+
+static int p,m=0;
+//static flag=0;
+void consume(int a);
+int produce();
+
+
+int buffer[N];
+/* リングバッファ */
+int inptr = 0, outptr = 0;
+int count = 0;
+/* バッファに入っているデータの数 */
+/* 条件変数の宣言 */
+pthread_cond_t full = PTHREAD_COND_INITIALIZER;
+pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER; /* ロック変数の宣言 */
+void *producer(void *arg)
+/* 生産者 */
+{
+int data;
+ for (/*p=1;p<=1000;p++*/;;) {
+ /* データを作る */
+pthread_mutex_lock(&lock);
+
+ data = produce();
+ 
+while (count >= N) pthread_cond_wait(&full, &lock); /* 満杯なら待つ */
+buffer[inptr] = data;
+inptr = (inptr + 1) % N;
+count = count + 1;
+
+
+ 
+pthread_cond_signal(&empty); /* バッファにデータを追加したことを通知 */
+pthread_mutex_unlock(&lock);
+
+
+
+ if(p>=1000){
+   //flag=1;
+   break;
+ }
+ 
+ 
+}
+}
+
+void *consumer(void *arg)
+/* 消費者 */
+{
+int data;
+ for (;;) {
+pthread_mutex_lock(&lock);
+ while (count == 0 /*&& flag!=1*/) pthread_cond_wait(&empty, &lock);
+/* 空なら待つ */
+data = buffer[outptr];
+outptr = (outptr + 1) % N;
+count = count - 1;
+pthread_cond_signal(&full);
+ consume(data);
+
+/* バッファに空きができたことを通知 */
+pthread_mutex_unlock(&lock);
+//consume(data);
+/* データを消費 */
+
+ if(data>=1000 && count==0/* && flag==1*/){
+   break;
+ }
+ 
+
+ 
+ 
+ 
+}
+}
+
+int produce(){
+  p++;
+  return p;
+}
+void consume(int a){
+  m+=a;
+}
+
+
+int main(){
+  pthread_t a, b;
+  pthread_create(&a, NULL, producer, NULL);
+  pthread_create(&b, NULL, consumer, NULL);
+  pthread_join(a, NULL);
+  pthread_join(b, NULL);
+  /*for(;;){
+  if(p==1000){
+   pthread_exit(&a);
+   pthread_exit(&b);
+   }
+   }*/
+  printf("%d",m);
+}
+
+
+感想
+threadに関しての理解が深まる課題であり、有意義であった。
+課題5.2は試行錯誤を繰り返したためコメントアウトの部分が多くなってしまった。
